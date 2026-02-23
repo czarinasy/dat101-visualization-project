@@ -1,17 +1,10 @@
-"""
-    DASHBOARD
-
-    To run:
-        streamlit run app.py
-"""
-
 import streamlit as st
 import geopandas as gpd
 import plotly.graph_objects as go
 import pandas as pd
 import json
 from enum import Enum
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 
 # --- 1. DOMAIN MODELS & CONSTANTS ---
@@ -127,10 +120,36 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 
-def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, List[str]]:
-    """Renders sidebar widgets and handles bulk-selection state management."""
+def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optional[str], List[str]]:
+    """Renders sidebar widgets and handles bulk-selection state management.
+    
+    Returns:
+        selected_region: Primary region selection
+        compare_region: Secondary region for comparison (None if not comparing)
+        active_categories: List of active expenditure category column names
+    """
     st.sidebar.title("🔍 Filters")
-    selected_region = st.sidebar.selectbox("Focus Region", options=region_options)
+
+    # --- Primary Region ---
+    selected_region = st.sidebar.selectbox(
+        "Focus Region",
+        options=region_options,
+        key="primary_region"
+    )
+
+    # --- Comparison Region ---
+    st.sidebar.markdown("### Compare With")
+    enable_compare = st.sidebar.toggle("Enable Region Comparison", value=False)
+
+    compare_region = None
+    if enable_compare:
+        # Exclude the primary region from the comparison options to avoid comparing same vs same
+        compare_options = [r for r in region_options if r != selected_region]
+        compare_region = st.sidebar.selectbox(
+            "Compare Region",
+            options=compare_options,
+            key="compare_region"
+        )
 
     # ADD SIDEBAR SETTINGS (e.g., Theme Toggles, Date Selectors) HERE
 
@@ -155,7 +174,7 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, List[st
         if st.sidebar.checkbox(category.name.replace("_", " ").title(), key=category.name):
             active_categories.append(category.value)
 
-    return selected_region, active_categories
+    return selected_region, compare_region, active_categories
 
 
 # --- 4. VISUALIZATION ENGINE ---
@@ -185,25 +204,73 @@ def build_regional_choropleth(map_gdf: gpd.GeoDataFrame, highlight_indices: List
     return fig
 
 
-def build_expenditure_bar_chart(data_row: pd.Series, categories: List[str], y_max: float) -> go.Figure:
-    """Constructs the bar chart showing categorical breakdown."""
+def build_expenditure_bar_chart(
+    data_row: pd.Series,
+    categories: List[str],
+    y_max: float,
+    compare_row: Optional[pd.Series] = None,
+    compare_label: Optional[str] = None,
+    primary_label: Optional[str] = None,
+) -> go.Figure:
+    """Constructs the bar chart showing categorical breakdown.
+    
+    If compare_row is provided, renders a grouped bar chart for side-by-side comparison.
+    Otherwise renders a single-region bar chart.
+    """
     labels = [c.replace('_MONTHLY', '').title() for c in categories]
-    fig = go.Figure(go.Bar(
-        x=labels,
-        y=data_row[categories].values,
-        marker_color='#E65100',
-        text=data_row[categories].values,
-        texttemplate='₱%{text:,.0f}',
-        textposition='outside'
-    ))
+    fig = go.Figure()
+
+    if compare_row is not None:
+        # --- Grouped comparison mode ---
+        fig.add_trace(go.Bar(
+            name=primary_label or "Region A",
+            x=labels,
+            y=data_row[categories].values,
+            marker_color='#E65100',
+            text=data_row[categories].values,
+            texttemplate='₱%{text:,.0f}',
+            textposition='outside',
+        ))
+        fig.add_trace(go.Bar(
+            name=compare_label or "Region B",
+            x=labels,
+            y=compare_row[categories].values,
+            marker_color='#1565C0',
+            text=compare_row[categories].values,
+            texttemplate='₱%{text:,.0f}',
+            textposition='outside',
+        ))
+        fig.update_layout(barmode='group')
+    else:
+        # --- Single region mode (original behavior) ---
+        fig.add_trace(go.Bar(
+            x=labels,
+            y=data_row[categories].values,
+            marker_color='#E65100',
+            text=data_row[categories].values,
+            texttemplate='₱%{text:,.0f}',
+            textposition='outside',
+        ))
 
     fig.update_layout(
         template="plotly_white",
         margin={"t": 30, "b": 10, "l": 10, "r": 10},
         yaxis=dict(range=[0, y_max * 1.3], showticklabels=False, showgrid=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=500
     )
     return fig
+
+
+def get_display_row(
+    region: str,
+    nat_avg_df: pd.DataFrame,
+    map_gdf: gpd.GeoDataFrame
+) -> pd.Series:
+    """Helper: returns the data row for a given region name."""
+    if region == "All Regions (National Avg)":
+        return nat_avg_df.iloc[0]
+    return map_gdf[map_gdf['REGION'] == region].iloc[0]
 
 
 # DEFINE NEW VISUALIZATION BUILDERS (e.g., build_line_chart, build_data_table) HERE
@@ -232,26 +299,54 @@ def main():
     nat_avg_df, map_gdf, options_list = fetch_and_preprocess_data()
 
     # Get User Inputs
-    selected_region, selected_cats = initialize_sidebar_controls(options_list)
+    selected_region, compare_region, selected_cats = initialize_sidebar_controls(options_list)
 
     # Business Logic: Calculate current metric scope
     map_gdf['DYNAMIC_Z'] = map_gdf[selected_cats].sum(axis=1) if selected_cats else 0
 
     # Determine subset of data for display and map highlighting
+    display_data_row = get_display_row(selected_region, nat_avg_df, map_gdf)
+
+    # Highlight: primary region + comparison region (if any)
     if selected_region == "All Regions (National Avg)":
         indices_to_highlight = list(range(len(map_gdf)))
-        display_data_row = nat_avg_df.iloc[0]
     else:
         indices_to_highlight = map_gdf.index[map_gdf['REGION'] == selected_region].tolist()
-        display_data_row = map_gdf[map_gdf['REGION'] == selected_region].iloc[0]
+
+    compare_data_row = None
+    if compare_region:
+        compare_data_row = get_display_row(compare_region, nat_avg_df, map_gdf)
+        # Also highlight the comparison region on the map
+        if compare_region == "All Regions (National Avg)":
+            indices_to_highlight = list(range(len(map_gdf)))
+        else:
+            compare_indices = map_gdf.index[map_gdf['REGION'] == compare_region].tolist()
+            indices_to_highlight = list(set(indices_to_highlight + compare_indices))
 
     # Render Main UI
     st.markdown("<h1 style='text-align: left;'>🇵🇭 PH Average Monthly Expenditures</h1>", unsafe_allow_html=True)
 
-    # Key Performance Indicator (KPI) Section
-    # TO ADD MORE METRICS: Add more columns to the layout here
+    # KPI Section
     current_scope_total = display_data_row[selected_cats].sum() if selected_cats else 0
-    st.metric(label=f"Monthly Spending for {selected_region}", value=f"₱{current_scope_total:,.2f}")
+
+    if compare_region and compare_data_row is not None:
+        # Side-by-side KPI metrics when comparing
+        kpi_col1, kpi_col2 = st.columns(2)
+        with kpi_col1:
+            st.metric(
+                label=f"Monthly Spending — {selected_region}",
+                value=f"₱{current_scope_total:,.2f}"
+            )
+        with kpi_col2:
+            compare_total = compare_data_row[selected_cats].sum() if selected_cats else 0
+            delta = compare_total - current_scope_total
+            st.metric(
+                label=f"Monthly Spending — {compare_region}",
+                value=f"₱{compare_total:,.2f}",
+                delta=f"₱{delta:,.2f} vs {selected_region}",
+            )
+    else:
+        st.metric(label=f"Monthly Spending for {selected_region}", value=f"₱{current_scope_total:,.2f}")
 
     # Main Visuals Row: Map and Bar Chart
     col_map, col_bar = st.columns([1.7, 1.3])
@@ -263,8 +358,18 @@ def main():
     with col_bar:
         if selected_cats:
             global_max_val = map_gdf[selected_cats].max().max() if not map_gdf.empty else 10000
+
+            # Sort categories by primary region values
             sorted_cats = display_data_row[selected_cats].sort_values(ascending=False).index.tolist()
-            fig_bar = build_expenditure_bar_chart(display_data_row, sorted_cats, global_max_val)
+
+            fig_bar = build_expenditure_bar_chart(
+                data_row=display_data_row,
+                categories=sorted_cats,
+                y_max=global_max_val,
+                compare_row=compare_data_row,
+                compare_label=compare_region,
+                primary_label=selected_region,
+            )
             st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("Please select at least one category in the sidebar to see the breakdown.")
