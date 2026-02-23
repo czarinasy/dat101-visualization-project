@@ -115,6 +115,26 @@ def inject_custom_css():
 
         div[data-testid="stCheckbox"] { margin-bottom: -15px; }
 
+        /* Metric label — "Monthly Spending for..." */
+        .stMetric [data-testid="stMetricLabel"],
+        .stMetric [data-testid="stMetricLabel"] p,
+        .stMetric [data-testid="stMetricLabel"] span {
+            color: #555555 !important;
+            font-size: 0.9rem !important;
+        }
+
+        /* Metric value — "₱13,938.61" */
+        .stMetric [data-testid="stMetricValue"],
+        .stMetric [data-testid="stMetricValue"] span {
+            color: #1a1a1a !important;
+        }
+
+        /* Metric delta — "₱8,946.83 vs ..." */
+        .stMetric [data-testid="stMetricDelta"],
+        .stMetric [data-testid="stMetricDelta"] span {
+            color: #555555 !important;
+        }
+
         /* ADD CUSTOM CSS FOR NEW SECTIONS HERE */
         </style>
     """, unsafe_allow_html=True)
