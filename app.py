@@ -263,7 +263,8 @@ def main():
     with col_bar:
         if selected_cats:
             global_max_val = map_gdf[selected_cats].max().max() if not map_gdf.empty else 10000
-            fig_bar = build_expenditure_bar_chart(display_data_row, selected_cats, global_max_val)
+            sorted_cats = display_data_row[selected_cats].sort_values(ascending=False).index.tolist()
+            fig_bar = build_expenditure_bar_chart(display_data_row, sorted_cats, global_max_val)
             st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("Please select at least one category in the sidebar to see the breakdown.")
