@@ -429,7 +429,7 @@ def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: 
     # Line 1: Dynamic Expenditures
     fig.add_trace(go.Scatter(
         x=chart_df['REGION'], y=chart_df['Dynamic_Exp'],
-        name="Selected Expenditures", mode='lines+markers',
+        name="Selected Expenditures", mode='markers',
         line=dict(color=DARK_BLUE, width=3),
         hovertemplate="₱%{y:,.2f}<extra></extra>"
     ))
@@ -437,7 +437,7 @@ def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: 
     # Line 2: Disaster Risk
     fig.add_trace(go.Scatter(
         x=chart_df['REGION'], y=chart_df['Disaster Risk Score'],
-        name="Disaster Risk Index", mode='lines+markers',
+        name="Disaster Risk Index", mode='markers',
         line=dict(color=DARK_AMBER, width=3, dash='dot'),
         yaxis="y2",
         hovertemplate="Risk: %{y:.2f}<extra></extra>"
@@ -482,22 +482,6 @@ def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: 
         )
 
     return fig
-
-# DEFINE NEW VISUALIZATION BUILDERS (e.g., build_line_chart, build_data_table) HERE
-
-# UNCOMMENT THIS FUNCTION TO SEE EXAMPLE OF HOW TO BUILD NEW SECTION
-
-# def build_rankings_table(map_gdf: gpd.GeoDataFrame, selected_cats: List[str]):
-#     """Creates a sorted dataframe for regional comparison rankings."""
-#     # Filter only relevant columns and calculate the sum
-#     rank_df = map_gdf[['REGION'] + selected_cats].copy()
-#     rank_df['Total Spending'] = rank_df[selected_cats].sum(axis=1)
-#
-#     # Sort and format for display
-#     rank_df = rank_df[['REGION', 'Total Spending']].sort_values(by='Total Spending', ascending=False)
-#     rank_df['Total Spending'] = rank_df['Total Spending'].map('₱{:,.2f}'.format)
-#
-#     return rank_df.reset_index(drop=True)
 
 
 # --- 5. MAIN APPLICATION ---
@@ -599,46 +583,18 @@ def main():
         fig_heatmap = build_risk_heatmap(risk_df, highlighted_region=heatmap_highlight)
         st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
 
-    # Expenditure - Risk comparison line chart
-    st.markdown("---")
-    st.subheader("📈 Expenditure vs. Disaster Risk Correlation")
-
-    with st.container():
-        if selected_cats:
-            # Added selected_region here
-            fig_line = build_expenditure_risk_line_chart(map_gdf, selected_cats, selected_region)
-            st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
-        else:
-            st.info("Please select at least one expenditure category to view the correlation.")
-
-    # --- ADD NEW LAYOUT SECTIONS BELOW ---
-    # Example: st.markdown("---")
-    # Example: st.subheader("Secondary Insights")
-    # Example: new_col1, new_col2 = st.columns(2)
-    # -------------------------------------
-    # --- ADD NEW LAYOUT SECTIONS BELOW ---
-
-    # UNCOMMENT THIS SECTION BELOW TO SEE EXAMPLE
-
+    # # Expenditure - Risk comparison line chart
     # st.markdown("---")
-    # st.subheader("📊 Regional Comparison Rankings")
+    # st.subheader("📈 Expenditure vs. Disaster Risk Correlation")
     #
-    # # Using a container to center the new section
     # with st.container():
     #     if selected_cats:
-    #         # Generate the data using our new builder
-    #         rankings_data = build_rankings_table(map_gdf, selected_cats)
-    #
-    #         # Display the table in the dashboard
-    #         st.dataframe(
-    #             rankings_data,
-    #             use_container_width=True,
-    #             hide_index=True
-    #         )
+    #         # Added selected_region here
+    #         fig_line = build_expenditure_risk_line_chart(map_gdf, selected_cats, selected_region)
+    #         st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
     #     else:
-    #         st.info("Select categories to generate rankings.")
+    #         st.info("Please select at least one expenditure category to view the correlation.")
 
-    # -------------------------------------
 
 if __name__ == "__main__":
     main()
