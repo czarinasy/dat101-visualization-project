@@ -107,8 +107,8 @@ def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[st
     regional_df = df[df['REGION'] != "All Regions (National Avg)"].copy()
     regional_df['SHP_NAME'] = regional_df['REGION'].map(mapping_dict)
 
-    # Perform Inner Join on names
-    map_gdf = gdf.merge(regional_df, left_on='name', right_on='SHP_NAME')
+    # Perform Left Join on names
+    map_gdf = gdf.merge(regional_df, left_on='name', right_on='SHP_NAME', how='left')
 
     # 3. Merge Risk Data into map_gdf
     # We match 'REGION' from FIES with 'PH Region' from the Risk CSV
