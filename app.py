@@ -78,25 +78,25 @@ class RegionMapping(Enum):
 
 
 # --- 2. DATA SERVICES ---
-
 @st.cache_data
 def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[str], pd.DataFrame]:
-    """Loads and merges FIES expenditures with Disaster Risk Index."""
+    """Loads datasets and performs initial merging and coordinate transforms."""
     df = pd.read_csv('./datasets/clean/fies_2023.csv')
     gdf = gpd.read_file("./datasets/raw/Regions.shp.shp")
     risk_df = pd.read_csv('./datasets/clean/disaster_risk_index.csv')
+    # IF ADDING NEW DATA SOURCES: Load them here and return as part of the Tuple
 
-    # Geometry cleanup
+    # Geometry simplification for performance
     gdf['geometry'] = gdf['geometry'].simplify(0.01)
     gdf = gdf.to_crs(epsg=4326)
 
-    # 1. Map FIES names to Shapefile names
+    # Apply mapping via Enum
     mapping_dict = RegionMapping.get_map_dict()
     nat_avg_df = df[df['REGION'] == "All Regions (National Avg)"].copy()
     regional_df = df[df['REGION'] != "All Regions (National Avg)"].copy()
     regional_df['SHP_NAME'] = regional_df['REGION'].map(mapping_dict)
 
-    # 2. Merge Shapefile with Expenditures
+    # Perform Inner Join on names
     map_gdf = gdf.merge(regional_df, left_on='name', right_on='SHP_NAME')
 
     # 3. Merge Risk Data into map_gdf
@@ -105,11 +105,10 @@ def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[st
                             left_on='REGION',
                             right_on='PH Region',
                             how='left')
-
+    # Ensure "All Regions" is always the first option in the list
     options = ["All Regions (National Avg)"] + sorted(map_gdf['REGION'].unique().tolist())
 
     return nat_avg_df, map_gdf, options, risk_df
-
 
 # --- 3. UI STYLING & FILTERS ---
 
@@ -323,7 +322,14 @@ def get_display_row(
 
 
 def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] = None) -> go.Figure:
-    """Constructs an interactive Region × Risk Component heatmap with bolded selection."""
+    """Constructs an interactive Region × Risk Component heatmap.
+
+        Args:
+            risk_df: DataFrame from disaster_risk_index.csv
+            highlighted_region: Region name to highlight in blue (None = no highlight)
+        Returns:
+            A Plotly Figure ready for st.plotly_chart()
+        """
 
     # Prepare heatmap data
     heatmap_df = risk_df[[
@@ -338,17 +344,22 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
     heatmap_df = heatmap_df.set_index('Region')
     heatmap_df = heatmap_df.sort_values('Disaster Risk Score', ascending=True)
 
-    # Build unified hover text
+    # Build unified hover text (same tooltip regardless of which cell is hovered)
     hover_array = []
     for region in heatmap_df.index:
         region_data = risk_df[risk_df['PH Region'] == region].iloc[0]
-        freq, human, econ, risk = heatmap_df.loc[region]
+        total_disasters = int(region_data['Disaster Count'])
+        freq = heatmap_df.loc[region, 'Frequency']
+        human = heatmap_df.loc[region, 'Human Impact']
+        econ = heatmap_df.loc[region, 'Economic Impact']
+        risk = heatmap_df.loc[region, 'Disaster Risk Score']
 
         hover = (
             f"<b>{region}</b><br>"
             f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
             f"<b>📊 RISK ANALYSIS:</b><br>"
             f"  • <b>Risk Score: {risk:.2f}</b><br>"
+            f"  • Total Disasters: {total_disasters}<br>"
             f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
             f"<b>📈 COMPONENT SCORES:</b><br>"
             f"  • Frequency: {freq:.2f}<br>"
@@ -368,12 +379,11 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
         customdata=hover_array,
         hovertemplate='%{customdata}<extra></extra>',
         colorbar=dict(
-            title="Score (0-100)",
+            title="Normalized Score (0-100)",
             title_side='right',
-            thickness=15,
-            tickfont=dict(color='black'),
             tickmode='linear', tick0=0, dtick=10,
-            len=0.75,
+            len=0.75, thickness=15,
+            tickfont=dict(color='black'),
             title_font=dict(color='black')
         ),
         xgap=2, ygap=2
@@ -392,15 +402,14 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
             'x': 0.5, 'xanchor': 'center',
             'font': {'size': 18, 'color': 'black'}
         },
-        xaxis=dict(side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
+        xaxis=dict(title='', side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
         yaxis=dict(
             tickmode='array',
             tickvals=list(heatmap_df.index),
             ticktext=y_labels,
             tickfont=dict(size=11, color='black'),
             showgrid=False,
-        ),
-        plot_bgcolor='white',
+        ),        plot_bgcolor='white',
         paper_bgcolor='white',
         margin=dict(l=250, r=150, t=100, b=120),
         height=700
