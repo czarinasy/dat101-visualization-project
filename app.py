@@ -70,7 +70,7 @@ class RegionMapping(Enum):
     REGION_13 = ("Region XIII - Caraga", "Region XIII (Caraga)")
     NCR = ("National Capital Region", "National Capital Region (NCR)")
     CAR = ("Cordillera Administrative Region", "Cordillera Administrative Region (CAR)")
-    BARMM = ("Bangsamoro Autonomous Region in Muslim Mindanao", "Bangsamoro Autonomous Region In Muslim Mindanao")
+    BARMM = ("Bangsamoro Autonomous Region in Muslim Mindanao", "Bangsamoro Autonomous Region In Muslim Mindanao (BARMM)")
 
     @classmethod
     def get_map_dict(cls) -> Dict[str, str]:
