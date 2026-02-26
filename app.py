@@ -83,6 +83,7 @@ def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[st
     """Loads datasets and performs initial merging and coordinate transforms."""
     df = pd.read_csv('./datasets/clean/fies_2023.csv')
     gdf = gpd.read_file("./datasets/raw/Regions.shp.shp")
+    risk_df = pd.read_csv('./datasets/clean/disaster_risk_index.csv')
     # IF ADDING NEW DATA SOURCES: Load them here and return as part of the Tuple
 
     # Geometry simplification for performance
@@ -101,7 +102,7 @@ def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[st
     # Ensure "All Regions" is always the first option in the list
     options = ["All Regions (National Avg)"] + sorted(map_gdf['REGION'].unique().tolist())
 
-    return nat_avg_df, map_gdf, options
+    return nat_avg_df, map_gdf, options,risk_df
 
 
 # --- 3. UI STYLING & FILTERS ---
@@ -314,6 +315,114 @@ def get_display_row(
         return nat_avg_df.iloc[0]
     return map_gdf[map_gdf['REGION'] == region].iloc[0]
 
+# [ADDED] Disaster Risk Heatmap Builder
+def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] = None) -> go.Figure:
+    """Constructs an interactive Region × Risk Component heatmap.
+
+    Args:
+        risk_df: DataFrame from disaster_risk_index.csv
+        highlighted_region: Region name to highlight in blue (None = no highlight)
+    Returns:
+        A Plotly Figure ready for st.plotly_chart()
+    """
+    # Prepare heatmap data
+    heatmap_df = risk_df[[
+        'PH Region',
+        'Disaster Frequency (Normalized)',
+        'Human Impact (Normalized)',
+        'Economic Impact (Normalized)',
+        'Disaster Risk Score'
+    ]].copy()
+
+    heatmap_df.columns = ['Region', 'Frequency', 'Human Impact', 'Economic Impact', 'Disaster Risk Score']
+    heatmap_df = heatmap_df.set_index('Region')
+    heatmap_df = heatmap_df.sort_values('Disaster Risk Score', ascending=True)
+
+    # Build unified hover text (same tooltip regardless of which cell is hovered)
+    hover_array = []
+    for region in heatmap_df.index:
+        region_data = risk_df[risk_df['PH Region'] == region].iloc[0]
+        total_disasters = int(region_data['Disaster Count'])
+        freq = heatmap_df.loc[region, 'Frequency']
+        human = heatmap_df.loc[region, 'Human Impact']
+        econ = heatmap_df.loc[region, 'Economic Impact']
+        risk = heatmap_df.loc[region, 'Disaster Risk Score']
+
+        hover = (
+            f"<b>{region}</b><br>"
+            f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
+            f"<b>📊 RISK ANALYSIS:</b><br>"
+            f"  • <b>Risk Score: {risk:.2f}</b><br>"
+            f"  • Total Disasters: {total_disasters}<br>"
+            f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
+            f"<b>📈 COMPONENT SCORES:</b><br>"
+            f"  • Frequency: {freq:.2f}<br>"
+            f"  • Human Impact: {human:.2f}<br>"
+            f"  • Economic Impact: {econ:.2f}<br>"
+        )
+        hover_array.append([hover] * len(heatmap_df.columns))
+
+    # Base heatmap (Yellow-Orange gradient)
+    fig = go.Figure()
+    fig.add_trace(go.Heatmap(
+        z=heatmap_df.values,
+        x=heatmap_df.columns,
+        y=heatmap_df.index,
+        colorscale=[
+            [0.0, '#FFF8E1'], [0.2, '#FFE082'], [0.4, '#FFC107'],
+            [0.6, '#FF9800'], [0.8, '#F57C00'], [1.0, '#E65100'],
+        ],
+        customdata=hover_array,
+        hovertemplate='%{customdata}<extra></extra>',
+        colorbar=dict(
+            title="Normalized Score (0-100)",
+            title_side='right',
+            tickmode='linear', tick0=0, dtick=10,
+            len=0.75, thickness=15
+        ),
+        xgap=2, ygap=2
+    ))
+
+    # Blue highlighting overlay for selected region
+    if highlighted_region and highlighted_region in heatmap_df.index:
+        row_idx = list(heatmap_df.index).index(highlighted_region)
+        for col_idx, value in enumerate(heatmap_df.loc[highlighted_region].values):
+            intensity = value / 100
+            if intensity < 0.2:
+                color = '#E3F2FD'
+            elif intensity < 0.4:
+                color = '#90CAF9'
+            elif intensity < 0.6:
+                color = '#42A5F5'
+            elif intensity < 0.8:
+                color = '#1E88E5'
+            else:
+                color = '#1565C0'
+
+            fig.add_shape(
+                type="rect",
+                x0=col_idx - 0.5, x1=col_idx + 0.5,
+                y0=row_idx - 0.5, y1=row_idx + 0.5,
+                fillcolor=color, opacity=0.95,
+                line=dict(color="white", width=2),
+                layer="above"
+            )
+
+    fig.update_layout(
+        title={
+            'text': '<b>Region × Risk Component Heat Map</b>',
+            'x': 0.5, 'xanchor': 'center',
+            'font': {'size': 18, 'color': 'black'}
+        },
+        xaxis=dict(title='', side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
+        yaxis=dict(title='', tickfont=dict(size=10, color='black'), showgrid=False),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        margin=dict(l=250, r=150, t=100, b=120),
+        height=700
+    )
+    return fig
+
 
 # DEFINE NEW VISUALIZATION BUILDERS (e.g., build_line_chart, build_data_table) HERE
 
@@ -338,7 +447,7 @@ def main():
     inject_custom_css()
 
     # Load Data
-    nat_avg_df, map_gdf, options_list = fetch_and_preprocess_data()
+    nat_avg_df, map_gdf, options_list,risk_df = fetch_and_preprocess_data()
 
     # Get User Inputs
     selected_region, compare_region, selected_cats = initialize_sidebar_controls(options_list)
@@ -415,6 +524,22 @@ def main():
             st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("Please select at least one category in the sidebar to see the breakdown.")
+
+
+    # [ADDED] Disaster Risk Heatmap Section
+    st.markdown("---")
+    st.subheader("🔥 Disaster Risk Heatmap")
+
+    with st.container():
+        # Map the selected_region to its PH Region name for heatmap highlighting
+        # Only highlight if a specific region (not National Avg) is selected
+        heatmap_highlight = None
+        if selected_region != "All Regions (National Avg)":
+            heatmap_highlight = selected_region
+
+        fig_heatmap = build_risk_heatmap(risk_df, highlighted_region=heatmap_highlight)
+        st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
+
 
     # --- ADD NEW LAYOUT SECTIONS BELOW ---
     # Example: st.markdown("---")
