@@ -278,6 +278,7 @@ def build_expenditure_bar_chart(
             text=data_row[categories].values,
             texttemplate='₱%{text:,.0f}',
             textposition='outside',
+            hovertemplate=f"<b>{primary_label or 'Region A'}</b><br>%{{x}}: ₱%{{y:,.2f}}<extra></extra>",
         ))
         fig.add_trace(go.Bar(
             name=compare_label or "Region B",
@@ -287,6 +288,7 @@ def build_expenditure_bar_chart(
             text=compare_row[categories].values,
             texttemplate='₱%{text:,.0f}',
             textposition='outside',
+            hovertemplate=f"<b>{compare_label or 'Region B'}</b><br>%{{x}}: ₱%{{y:,.2f}}<extra></extra>",
         ))
         fig.update_layout(barmode='group')
     else:
