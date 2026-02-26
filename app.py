@@ -11,21 +11,22 @@ from typing import List, Tuple, Dict, Optional
 CHART_SIZE = 500
 
 BLUE_PALETTE = [
-    [0.0, "#E0F2FF"],  # very low
-    [0.25, "#9CCCF7"],  # low
-    [0.5, "#4A90E2"],  # medium
-    [0.75, "#1F78D1"],  # high
-    [1.0, "#0D47A1"]  # very high
+    [0.0, "#E0F2FF"],  # lowest
+    [0.25, "#9CCCF7"],
+    [0.5, "#4A90E2"],
+    [0.75, "#1F78D1"],
+    [1.0, "#0D47A1"]  # highest
 ]
 LIGHT_BLUE = BLUE_PALETTE[0][1]
 DARK_BLUE = BLUE_PALETTE[-1][-1]
 
 AMBER_PALETTE = [
-    [0.0, "#FFF8E1"],  # very low
-    [0.25, "#FFD54F"],  # low
-    [0.5, "#FFB300"],  # medium
-    [0.75, "#FB8C00"],  # high
-    [1.0, "#E65100"]  # very high
+    [0.0, '#FFF8E1'],  # lowest
+    [0.2, '#FFE082'],
+    [0.4, '#FFC107'],
+    [0.6, '#FF9800'],
+    [0.8, '#F57C00'],
+    [1.0, '#E65100']  # highest
 ]
 LIGHT_AMBER = AMBER_PALETTE[0][1]
 DARK_AMBER = AMBER_PALETTE[-1][-1]
@@ -320,16 +321,10 @@ def get_display_row(
         return nat_avg_df.iloc[0]
     return map_gdf[map_gdf['REGION'] == region].iloc[0]
 
-# [ADDED] Disaster Risk Heatmap Builder
-def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] = None) -> go.Figure:
-    """Constructs an interactive Region × Risk Component heatmap.
 
-    Args:
-        risk_df: DataFrame from disaster_risk_index.csv
-        highlighted_region: Region name to highlight in blue (None = no highlight)
-    Returns:
-        A Plotly Figure ready for st.plotly_chart()
-    """
+def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] = None) -> go.Figure:
+    """Constructs an interactive Region × Risk Component heatmap with bolded selection."""
+
     # Prepare heatmap data
     heatmap_df = risk_df[[
         'PH Region',
@@ -343,22 +338,17 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
     heatmap_df = heatmap_df.set_index('Region')
     heatmap_df = heatmap_df.sort_values('Disaster Risk Score', ascending=True)
 
-    # Build unified hover text (same tooltip regardless of which cell is hovered)
+    # Build unified hover text
     hover_array = []
     for region in heatmap_df.index:
         region_data = risk_df[risk_df['PH Region'] == region].iloc[0]
-        total_disasters = int(region_data['Disaster Count'])
-        freq = heatmap_df.loc[region, 'Frequency']
-        human = heatmap_df.loc[region, 'Human Impact']
-        econ = heatmap_df.loc[region, 'Economic Impact']
-        risk = heatmap_df.loc[region, 'Disaster Risk Score']
+        freq, human, econ, risk = heatmap_df.loc[region]
 
         hover = (
             f"<b>{region}</b><br>"
             f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
             f"<b>📊 RISK ANALYSIS:</b><br>"
             f"  • <b>Risk Score: {risk:.2f}</b><br>"
-            f"  • Total Disasters: {total_disasters}<br>"
             f"<b>━━━━━━━━━━━━━━━━━━</b><br>"
             f"<b>📈 COMPONENT SCORES:</b><br>"
             f"  • Frequency: {freq:.2f}<br>"
@@ -367,54 +357,31 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
         )
         hover_array.append([hover] * len(heatmap_df.columns))
 
-    # Base heatmap (Yellow-Orange gradient)
     fig = go.Figure()
+
+    # Base heatmap using the AMBER_PALETTE variable
     fig.add_trace(go.Heatmap(
         z=heatmap_df.values,
         x=heatmap_df.columns,
         y=heatmap_df.index,
-        colorscale=[
-            [0.0, '#FFF8E1'], [0.2, '#FFE082'], [0.4, '#FFC107'],
-            [0.6, '#FF9800'], [0.8, '#F57C00'], [1.0, '#E65100'],
-        ],
+        colorscale=AMBER_PALETTE,
         customdata=hover_array,
         hovertemplate='%{customdata}<extra></extra>',
         colorbar=dict(
-            title="Normalized Score (0-100)",
+            title="Score (0-100)",
             title_side='right',
-            tickmode='linear', tick0=0, dtick=10,
-            len=0.75, thickness=15,
-            tickfont=dict(color='black'),
-            title_font=dict(color='black')
-            
+            thickness=15,
+            tickfont=dict(color='black')
         ),
         xgap=2, ygap=2
     ))
 
-    # Blue highlighting overlay for selected region
-    if highlighted_region and highlighted_region in heatmap_df.index:
-        row_idx = list(heatmap_df.index).index(highlighted_region)
-        for col_idx, value in enumerate(heatmap_df.loc[highlighted_region].values):
-            intensity = value / 100
-            if intensity < 0.2:
-                color = '#E3F2FD'
-            elif intensity < 0.4:
-                color = '#90CAF9'
-            elif intensity < 0.6:
-                color = '#42A5F5'
-            elif intensity < 0.8:
-                color = '#1E88E5'
-            else:
-                color = '#1565C0'
-
-            fig.add_shape(
-                type="rect",
-                x0=col_idx - 0.5, x1=col_idx + 0.5,
-                y0=row_idx - 0.5, y1=row_idx + 0.5,
-                fillcolor=color, opacity=0.95,
-                line=dict(color="white", width=2),
-                layer="above"
-            )
+    # --- BOLDING LOGIC ---
+    # We generate a list of labels where the selected region is wrapped in <b> tags
+    y_labels = [
+        f"<b>{reg}</b>" if reg == highlighted_region else reg
+        for reg in heatmap_df.index
+    ]
 
     fig.update_layout(
         title={
@@ -422,8 +389,14 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
             'x': 0.5, 'xanchor': 'center',
             'font': {'size': 18, 'color': 'black'}
         },
-        xaxis=dict(title='', side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
-        yaxis=dict(title='', tickfont=dict(size=10, color='black'), showgrid=False),
+        xaxis=dict(side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
+        yaxis=dict(
+            tickmode='array',
+            tickvals=list(heatmap_df.index),
+            ticktext=y_labels,
+            tickfont=dict(size=11, color='black'),
+            showgrid=False,
+        ),
         plot_bgcolor='white',
         paper_bgcolor='white',
         margin=dict(l=250, r=150, t=100, b=120),
@@ -473,7 +446,7 @@ def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: 
                 f"<b>{reg}</b>" if reg == selected_region else reg
                 for reg in chart_df['REGION']
             ],
-            tickfont=dict(color="#555555")  # Base color; individual colors handled by ticktext/CSS usually
+            tickfont=dict(size=11, color='black')  # Base color; individual colors handled by ticktext/CSS usually
         ),
         yaxis=dict(
             title=dict(text="Selected Expenditure (PHP)", font=dict(color=DARK_BLUE)),
