@@ -304,6 +304,56 @@ def build_expenditure_bar_chart(
     )
     return fig
 
+def build_regional_distribution_bar(
+    map_gdf: gpd.GeoDataFrame,
+    category: str,
+) -> go.Figure:
+    """Horizontal bar chart showing a single expenditure category across all regions.
+    
+    Top 3 regions are shaded darkest blue (#0D47A1), rest are lighter (#90CAF9).
+    Sorted descending by value.
+    """
+    # Prepare and sort data
+    bar_df = map_gdf[['REGION', category]].copy()
+    bar_df = bar_df.sort_values(by=category, ascending=True)  # ascending=True for horizontal (bottom = highest)
+
+    # Assign colors: top 3 get dark blue, rest get light blue
+    n = len(bar_df)
+    colors = ['#90CAF9'] * n
+    colors[-1] = '#0D47A1'
+    colors[-2] = '#0D47A1'
+    colors[-3] = '#0D47A1'
+
+    label = category.replace('_MONTHLY', '').title()
+
+    fig = go.Figure(go.Bar(
+        x=bar_df[category].values,
+        y=bar_df['REGION'].values,
+        orientation='h',
+        marker_color=colors,
+        text=bar_df[category].values,
+        texttemplate='₱%{text:,.0f}',
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>₱%{x:,.2f}<extra></extra>',
+    ))
+
+    fig.update_layout(
+        template='plotly_white',
+        title=dict(
+            text=f'<b>{label} Expenditure Across All Regions</b>',
+            x=0.5, xanchor='center',
+            font=dict(size=14, color='black')
+        ),
+        xaxis=dict(
+            showticklabels=False,
+            showgrid=False,
+            range=[0, bar_df[category].max() * 1.25],
+        ),
+        yaxis=dict(tickfont=dict(size=10)),
+        margin=dict(t=50, b=20, l=10, r=100),
+        height=CHART_SIZE,
+    )
+    return fig
 
 def get_display_row(
     region: str,
@@ -515,20 +565,25 @@ def main():
 
     with col_bar:
         if selected_cats:
-            global_max_val = map_gdf[selected_cats].max().max() if not map_gdf.empty else 10000
-
-            # Sort categories by primary region values
-            sorted_cats = display_data_row[selected_cats].sort_values(ascending=False).index.tolist()
-
-            fig_bar = build_expenditure_bar_chart(
-                data_row=display_data_row,
-                categories=sorted_cats,
-                y_max=global_max_val,
-                compare_row=compare_data_row,
-                compare_label=compare_region,
-                primary_label=selected_region,
-            )
-            st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+            # Single category selected + "All Regions" view → show regional distribution
+            if len(selected_cats) == 1 and selected_region == "All Regions (National Avg)":
+                fig_bar = build_regional_distribution_bar(
+                    map_gdf=map_gdf,
+                    category=selected_cats[0],
+                )
+                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+            else:
+                global_max_val = map_gdf[selected_cats].max().max() if not map_gdf.empty else 10000
+                sorted_cats = display_data_row[selected_cats].sort_values(ascending=False).index.tolist()
+                fig_bar = build_expenditure_bar_chart(
+                    data_row=display_data_row,
+                    categories=sorted_cats,
+                    y_max=global_max_val,
+                    compare_row=compare_data_row,
+                    compare_label=compare_region,
+                    primary_label=selected_region,
+                )
+                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("Please select at least one category in the sidebar to see the breakdown.")
 
