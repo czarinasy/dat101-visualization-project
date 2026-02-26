@@ -79,30 +79,35 @@ class RegionMapping(Enum):
 # --- 2. DATA SERVICES ---
 
 @st.cache_data
-def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[str]]:
-    """Loads datasets and performs initial merging and coordinate transforms."""
+def fetch_and_preprocess_data() -> Tuple[pd.DataFrame, gpd.GeoDataFrame, List[str], pd.DataFrame]:
+    """Loads and merges FIES expenditures with Disaster Risk Index."""
     df = pd.read_csv('./datasets/clean/fies_2023.csv')
     gdf = gpd.read_file("./datasets/raw/Regions.shp.shp")
     risk_df = pd.read_csv('./datasets/clean/disaster_risk_index.csv')
-    # IF ADDING NEW DATA SOURCES: Load them here and return as part of the Tuple
 
-    # Geometry simplification for performance
+    # Geometry cleanup
     gdf['geometry'] = gdf['geometry'].simplify(0.01)
     gdf = gdf.to_crs(epsg=4326)
 
-    # Apply mapping via Enum
+    # 1. Map FIES names to Shapefile names
     mapping_dict = RegionMapping.get_map_dict()
     nat_avg_df = df[df['REGION'] == "All Regions (National Avg)"].copy()
     regional_df = df[df['REGION'] != "All Regions (National Avg)"].copy()
     regional_df['SHP_NAME'] = regional_df['REGION'].map(mapping_dict)
 
-    # Perform Inner Join on names
+    # 2. Merge Shapefile with Expenditures
     map_gdf = gdf.merge(regional_df, left_on='name', right_on='SHP_NAME')
 
-    # Ensure "All Regions" is always the first option in the list
+    # 3. Merge Risk Data into map_gdf
+    # We match 'REGION' from FIES with 'PH Region' from the Risk CSV
+    map_gdf = map_gdf.merge(risk_df[['PH Region', 'Disaster Risk Score']],
+                            left_on='REGION',
+                            right_on='PH Region',
+                            how='left')
+
     options = ["All Regions (National Avg)"] + sorted(map_gdf['REGION'].unique().tolist())
 
-    return nat_avg_df, map_gdf, options,risk_df
+    return nat_avg_df, map_gdf, options, risk_df
 
 
 # --- 3. UI STYLING & FILTERS ---
@@ -426,6 +431,51 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
     )
     return fig
 
+def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame) -> go.Figure:
+    """Line chart comparing TOTAL_MONTHLY vs Disaster Risk Score with corrected title properties."""
+
+    # Sort regions by expenditure for a clean trend line
+    df = map_gdf.sort_values('TOTAL_MONTHLY', ascending=False)
+
+    fig = go.Figure()
+
+    # Line 1: Expenditures (Left Axis)
+    fig.add_trace(go.Scatter(
+        x=df['REGION'], y=df['TOTAL_MONTHLY'],
+        name="Monthly Expenditure", mode='lines+markers',
+        line=dict(color=DARK_BLUE, width=3),
+        hovertemplate="₱%{y:,.2f}<extra></extra>"
+    ))
+
+    # Line 2: Disaster Risk (Right Axis)
+    fig.add_trace(go.Scatter(
+        x=df['REGION'], y=df['Disaster Risk Score'],
+        name="Disaster Risk Index", mode='lines+markers',
+        line=dict(color=DARK_AMBER, width=3, dash='dot'),
+        yaxis="y2",
+        hovertemplate="Risk: %{y:.2f}<extra></extra>"
+    ))
+
+    fig.update_layout(
+        template="plotly_white",
+        height=CHART_SIZE,
+        hovermode="x unified",
+        margin=dict(l=10, r=10, t=50, b=100),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(tickangle=-45),
+        yaxis=dict(
+            title=dict(text="Monthly Average Expenditure (PHP)", font=dict(color=DARK_BLUE)),
+            tickfont=dict(color=DARK_BLUE)
+        ),
+        yaxis2=dict(
+            title=dict(text="Disaster Risk Index", font=dict(color=DARK_AMBER)),
+            tickfont=dict(color=DARK_AMBER),
+            overlaying="y",
+            side="right",
+            range=[0, 100]
+        )
+    )
+    return fig
 
 # DEFINE NEW VISUALIZATION BUILDERS (e.g., build_line_chart, build_data_table) HERE
 
@@ -529,7 +579,7 @@ def main():
             st.info("Please select at least one category in the sidebar to see the breakdown.")
 
 
-    # [ADDED] Disaster Risk Heatmap Section
+    # Disaster Risk Heatmap Section
     st.markdown("---")
     st.subheader("🔥 Disaster Risk Heatmap")
 
@@ -543,6 +593,13 @@ def main():
         fig_heatmap = build_risk_heatmap(risk_df, highlighted_region=heatmap_highlight)
         st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
 
+    with st.container():
+        # Dual Axis Comparison Section
+        st.markdown("---")
+        st.subheader("📈 Expenditure vs. Disaster Risk Correlation")
+
+        fig_line = build_expenditure_risk_line_chart(map_gdf)
+        st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
 
     # --- ADD NEW LAYOUT SECTIONS BELOW ---
     # Example: st.markdown("---")
