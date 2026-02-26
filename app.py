@@ -8,6 +8,27 @@ from typing import List, Tuple, Dict, Optional
 
 
 # --- 1. DOMAIN MODELS & CONSTANTS ---
+CHART_SIZE = 500
+
+BLUE_PALETTE = [
+    [0.0, "#E0F2FF"],  # very low
+    [0.25, "#9CCCF7"],  # low
+    [0.5, "#4A90E2"],  # medium
+    [0.75, "#1F78D1"],  # high
+    [1.0, "#0D47A1"]  # very high
+]
+LIGHT_BLUE = BLUE_PALETTE[0][1]
+DARK_BLUE = BLUE_PALETTE[-1][-1]
+
+AMBER_PALETTE = [
+    [0.0, "#FFF8E1"],  # very low
+    [0.25, "#FFD54F"],  # low
+    [0.5, "#FFB300"],  # medium
+    [0.75, "#FB8C00"],  # high
+    [1.0, "#E65100"]  # very high
+]
+LIGHT_AMBER = AMBER_PALETTE[0][1]
+DARK_AMBER = AMBER_PALETTE[-1][-1]
 
 class Expenditure(Enum):
     """Enumeration of expenditure categories for type-safety and consistency."""
@@ -201,11 +222,12 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optiona
 
 def build_regional_choropleth(map_gdf: gpd.GeoDataFrame, highlight_indices: List[int]) -> go.Figure:
     """Constructs the Plotly Mapbox Choropleth."""
+
     fig = go.Figure(go.Choroplethmapbox(
         geojson=json.loads(map_gdf.to_json()),
         locations=map_gdf.index,
         z=map_gdf['DYNAMIC_Z'],
-        colorscale="YlOrRd",
+        colorscale=BLUE_PALETTE,
         marker_opacity=0.7,
         marker_line_width=0.5,
         marker_line_color="black",
@@ -213,13 +235,13 @@ def build_regional_choropleth(map_gdf: gpd.GeoDataFrame, highlight_indices: List
         selected={'marker': {'opacity': 1.0}},
         unselected={'marker': {'opacity': 0.15}},
         hovertemplate="<b>%{customdata[0]}</b><br>Total: ₱%{z:,.2f}<extra></extra>",
-        customdata=map_gdf[['REGION']]
+        customdata=map_gdf[['REGION']],
     ))
 
     fig.update_layout(
         mapbox=dict(style="carto-positron", center={"lat": 12.8797, "lon": 121.7740}, zoom=4.4),
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        height=500
+        height=CHART_SIZE,
     )
     return fig
 
@@ -246,7 +268,7 @@ def build_expenditure_bar_chart(
             name=primary_label or "Region A",
             x=labels,
             y=data_row[categories].values,
-            marker_color='#E65100',
+            marker_color=DARK_BLUE,
             text=data_row[categories].values,
             texttemplate='₱%{text:,.0f}',
             textposition='outside',
@@ -255,7 +277,7 @@ def build_expenditure_bar_chart(
             name=compare_label or "Region B",
             x=labels,
             y=compare_row[categories].values,
-            marker_color='#1565C0',
+            marker_color=DARK_AMBER,
             text=compare_row[categories].values,
             texttemplate='₱%{text:,.0f}',
             textposition='outside',
@@ -266,7 +288,7 @@ def build_expenditure_bar_chart(
         fig.add_trace(go.Bar(
             x=labels,
             y=data_row[categories].values,
-            marker_color='#E65100',
+            marker_color=DARK_BLUE,
             text=data_row[categories].values,
             texttemplate='₱%{text:,.0f}',
             textposition='outside',
@@ -277,7 +299,7 @@ def build_expenditure_bar_chart(
         margin={"t": 30, "b": 10, "l": 10, "r": 10},
         yaxis=dict(range=[0, y_max * 1.3], showticklabels=False, showgrid=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=500
+        height=CHART_SIZE
     )
     return fig
 
