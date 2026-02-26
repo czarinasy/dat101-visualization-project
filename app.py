@@ -326,14 +326,18 @@ def build_regional_distribution_bar(
 
     label = category.replace('_MONTHLY', '').title()
 
+    # Calculate the max value to set a generous x-axis range so text labels are never clipped
+    max_val = bar_df[category].max()
+
     fig = go.Figure(go.Bar(
         x=bar_df[category].values,
         y=bar_df['REGION'].values,
         orientation='h',
         marker_color=colors,
         text=bar_df[category].values,
-        texttemplate='₱%{text:,.0f}',
+        texttemplate='₱%{text:,.2f}',
         textposition='outside',
+        cliponaxis=False,  # prevent labels from being clipped at the axis boundary
         hovertemplate='<b>%{y}</b><br>₱%{x:,.2f}<extra></extra>',
     ))
 
@@ -347,10 +351,11 @@ def build_regional_distribution_bar(
         xaxis=dict(
             showticklabels=False,
             showgrid=False,
-            range=[0, bar_df[category].max() * 1.25],
+            # Give 45% extra headroom so the longest label (e.g. ₱11,711.40) always fits
+            range=[0, max_val * 1.45],
         ),
         yaxis=dict(tickfont=dict(size=10)),
-        margin=dict(t=50, b=20, l=10, r=100),
+        margin=dict(t=50, b=20, l=10, r=120),
         height=CHART_SIZE,
     )
     return fig
