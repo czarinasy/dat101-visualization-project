@@ -40,6 +40,17 @@ class Expenditure(Enum):
     EDUCATION = "EDUCATION_MONTHLY"
     # ADD NEW CATEGORIES HERE as Enum members
 
+    def get_display_label(self) -> str:
+        """Returns a human-readable label for the expenditure category."""
+        label_map = {
+            "FOOD": "Food",
+            "CLOTH": "Cloth",
+            "HOUSING_WATER": "Housing & Water",
+            "HEALTH": "Health",
+            "EDUCATION": "Education",
+        }
+        return label_map.get(self.name, self.name.replace("_", " ").title())
+
 
 class RegionMapping(Enum):
     """Maps FIES CSV region names to Shapefile 'name' attributes."""
@@ -116,7 +127,7 @@ def inject_custom_css():
     """Configures page layout and injects custom CSS for branding and spacing."""
     st.set_page_config(
         layout="wide",
-        page_title="PH Average Monthly Expenditures",
+        page_title="PH Regional Cost & Resilience Dashboard",
         page_icon="🇵🇭"
     )
 
@@ -167,6 +178,18 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 
+def _get_category_display_label(category_value: str) -> str:
+    """Converts a raw column name to a human-readable display label."""
+    label_map = {
+        "FOOD_MONTHLY": "Food",
+        "CLOTH_MONTHLY": "Cloth",
+        "HOUSING_WATER_MONTHLY": "Housing & Water",
+        "HEALTH_MONTHLY": "Health",
+        "EDUCATION_MONTHLY": "Education",
+    }
+    return label_map.get(category_value, category_value.replace('_MONTHLY', '').title())
+
+
 def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optional[str], List[str]]:
     """Renders sidebar widgets and handles bulk-selection state management.
     
@@ -175,7 +198,7 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optiona
         compare_region: Secondary region for comparison (None if not comparing)
         active_categories: List of active expenditure category column names
     """
-    st.sidebar.title("🔍 Filters")
+    st.sidebar.title("🔍 Navigator Controls")
 
     # --- Primary Region ---
     selected_region = st.sidebar.selectbox(
@@ -185,7 +208,7 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optiona
     )
 
     # --- Comparison Region ---
-    st.sidebar.markdown("### Compare With")
+    st.sidebar.markdown("### Compare with Another Region")
     enable_compare = st.sidebar.toggle("Enable Region Comparison", value=False)
 
     compare_region = None
@@ -200,7 +223,7 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optiona
 
     # ADD SIDEBAR SETTINGS (e.g., Theme Toggles, Date Selectors) HERE
 
-    st.sidebar.markdown("### Categories")
+    st.sidebar.markdown("### Filter by Essential Needs")
 
     # Expenditure type check boxes
     def bulk_set_category_state(is_enabled: bool):
@@ -212,13 +235,13 @@ def initialize_sidebar_controls(region_options: List[str]) -> Tuple[str, Optiona
     c1.button("Select All", on_click=bulk_set_category_state, args=(True,), use_container_width=True)
     c2.button("Clear", on_click=bulk_set_category_state, args=(False,), use_container_width=True)
 
-    # Individual Checkboxes
+    # Individual Checkboxes — use human-readable labels
     active_categories = []
     for category in Expenditure:
         if category.name not in st.session_state:
             st.session_state[category.name] = True
 
-        if st.sidebar.checkbox(category.name.replace("_", " ").title(), key=category.name):
+        if st.sidebar.checkbox(category.get_display_label(), key=category.name):
             active_categories.append(category.value)
 
     return selected_region, compare_region, active_categories
@@ -242,6 +265,7 @@ def build_regional_choropleth(map_gdf: gpd.GeoDataFrame, highlight_indices: List
         unselected={'marker': {'opacity': 0.15}},
         hovertemplate="<b>%{customdata[0]}</b><br>Total: ₱%{z:,.2f}<extra></extra>",
         customdata=map_gdf[['REGION']],
+        colorbar=dict(title="Monthly Spending (PHP)"),
     ))
 
     fig.update_layout(
@@ -265,7 +289,7 @@ def build_expenditure_bar_chart(
     If compare_row is provided, renders a grouped bar chart for side-by-side comparison.
     Otherwise renders a single-region bar chart.
     """
-    labels = [c.replace('_MONTHLY', '').title() for c in categories]
+    labels = [_get_category_display_label(c) for c in categories]
     fig = go.Figure()
 
     if compare_row is not None:
@@ -305,8 +329,14 @@ def build_expenditure_bar_chart(
 
     fig.update_layout(
         template="plotly_white",
-        margin={"t": 30, "b": 10, "l": 10, "r": 10},
-        yaxis=dict(range=[0, y_max * 1.3], showticklabels=False, showgrid=False),
+        margin={"t": 10, "b": 10, "l": 10, "r": 10},
+        xaxis=dict(title="Expenditure Category"),
+        yaxis=dict(
+            title="Amount in Philippine Pesos (PHP)",
+            range=[0, y_max * 1.3],
+            showticklabels=False,
+            showgrid=False,
+        ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=CHART_SIZE
     )
@@ -332,7 +362,7 @@ def build_regional_distribution_bar(
     colors[-2] = '#0D47A1'
     colors[-3] = '#0D47A1'
 
-    label = category.replace('_MONTHLY', '').title()
+    category_label = _get_category_display_label(category)
 
     # Calculate the max value to set a generous x-axis range so text labels are never clipped
     max_val = bar_df[category].max()
@@ -351,19 +381,17 @@ def build_regional_distribution_bar(
 
     fig.update_layout(
         template='plotly_white',
-        title=dict(
-            text=f'<b>{label} Expenditure Across All Regions</b>',
-            x=0.5, xanchor='center',
-            font=dict(size=14, color='black')
-        ),
         xaxis=dict(
             showticklabels=False,
             showgrid=False,
             # Give 45% extra headroom so the longest label (e.g. ₱11,711.40) always fits
             range=[0, max_val * 1.45],
         ),
-        yaxis=dict(tickfont=dict(size=10)),
-        margin=dict(t=50, b=20, l=10, r=120),
+        yaxis=dict(
+            title="Philippine Regions",
+            tickfont=dict(size=10),
+        ),
+        margin=dict(t=10, b=20, l=10, r=120),
         height=CHART_SIZE,
     )
     return fig
@@ -437,7 +465,7 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
         customdata=hover_array,
         hovertemplate='%{customdata}<extra></extra>',
         colorbar=dict(
-            title="Normalized Score (0-100)",
+            title="Risk Severity (0-100)",
             title_side='right',
             tickmode='linear', tick0=0, dtick=10,
             len=0.75, thickness=15,
@@ -456,18 +484,26 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
 
     fig.update_layout(
         title={
-            'text': '<b>Region × Risk Component Heat Map</b>',
+            'text': '<b>Disaster Risk Profile Diagnostic</b>',
             'x': 0.5, 'xanchor': 'center',
             'font': {'size': 18, 'color': 'black'}
         },
-        xaxis=dict(title='', side='bottom', tickfont=dict(size=11, color='black'), tickangle=-45, showgrid=False),
+        xaxis=dict(
+            title='Risk Component',
+            side='bottom',
+            tickfont=dict(size=11, color='black'),
+            tickangle=-45,
+            showgrid=False,
+        ),
         yaxis=dict(
+            title='Regions',
             tickmode='array',
             tickvals=list(heatmap_df.index),
             ticktext=y_labels,
             tickfont=dict(size=11, color='black'),
             showgrid=False,
-        ),        plot_bgcolor='white',
+        ),
+        plot_bgcolor='white',
         paper_bgcolor='white',
         margin=dict(l=250, r=150, t=100, b=120),
         height=700
@@ -516,7 +552,7 @@ def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: 
                 f"<b>{reg}</b>" if reg == selected_region else reg
                 for reg in chart_df['REGION']
             ],
-            tickfont=dict(size=11, color='black')  # Base color; individual colors handled by ticktext/CSS usually
+            tickfont=dict(size=11, color='black')
         ),
         yaxis=dict(
             title=dict(text="Selected Expenditure (PHP)", font=dict(color=DARK_BLUE)),
@@ -548,7 +584,7 @@ def main():
     inject_custom_css()
 
     # Load Data
-    nat_avg_df, map_gdf, options_list,risk_df = fetch_and_preprocess_data()
+    nat_avg_df, map_gdf, options_list, risk_df = fetch_and_preprocess_data()
 
     # Get User Inputs
     selected_region, compare_region, selected_cats = initialize_sidebar_controls(options_list)
@@ -576,7 +612,10 @@ def main():
             indices_to_highlight = list(set(indices_to_highlight + compare_indices))
 
     # Render Main UI
-    st.markdown("<h1 style='text-align: left;'>🇵🇭 PH Average Monthly Expenditures</h1>", unsafe_allow_html=True)
+    st.markdown(
+        "<h1 style='text-align: left;'>🇵🇭 W.A.I.S. Relocation Hub: PH Regional Cost & Resilience Navigator</h1>",
+        unsafe_allow_html=True
+    )
 
     # KPI Section
     current_scope_total = display_data_row[selected_cats].sum() if selected_cats else 0
@@ -608,6 +647,8 @@ def main():
     col_map, col_bar = st.columns([1.7, 1.3])
 
     with col_map:
+        st.markdown("#### Regional Cost of Living Overview")
+        st.caption("Hover over a region for detailed affordability ratios. Darker blue indicates higher regional costs for selected categories.")
         fig_map = build_regional_choropleth(map_gdf, indices_to_highlight)
         st.plotly_chart(fig_map, use_container_width=True, config={'displayModeBar': False})
 
@@ -615,12 +656,21 @@ def main():
         if selected_cats:
             # Single category selected + "All Regions" view → show regional distribution
             if len(selected_cats) == 1 and selected_region == "All Regions (National Avg)":
+                category_label = _get_category_display_label(selected_cats[0])
+                st.markdown(f"#### Regional Monthly {category_label} Expenditure")
+                st.caption(f"Currently viewing: {category_label} across all 17 regions")
                 fig_bar = build_regional_distribution_bar(
                     map_gdf=map_gdf,
                     category=selected_cats[0],
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
             else:
+                if compare_data_row is not None:
+                    st.markdown("#### Comparison of Monthly Household Expenditure Breakdown")
+                    st.caption(f"Comparing {selected_region} vs. {compare_region}")
+                else:
+                    st.markdown("#### Monthly Household Expenditure Breakdown")
+                    st.caption(f"Expenditure category breakdown for {selected_region}")
                 global_max_val = map_gdf[selected_cats].max().max() if not map_gdf.empty else 10000
                 sorted_cats = display_data_row[selected_cats].sort_values(ascending=False).index.tolist()
                 fig_bar = build_expenditure_bar_chart(
@@ -633,12 +683,13 @@ def main():
                 )
                 st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         else:
+            st.markdown("#### Monthly Household Expenditure Breakdown")
             st.info("Please select at least one category in the sidebar to see the breakdown.")
 
 
     # Disaster Risk Heatmap Section
     st.markdown("---")
-    st.subheader("🔥 Disaster Risk Heatmap")
+    st.subheader("🔥 Regional Vulnerability Matrix")
 
     with st.container():
         # Map the selected_region to its PH Region name for heatmap highlighting
