@@ -494,10 +494,14 @@ def main():
         with kpi_col2:
             compare_total = compare_data_row[selected_cats].sum() if selected_cats else 0
             delta = compare_total - current_scope_total
+            if delta >= 0:
+                delta_str = f"₱{delta:,.2f} vs {selected_region}"
+            else:
+                delta_str = f"-₱{abs(delta):,.2f} vs {selected_region}"
             st.metric(
                 label=f"Monthly Spending — {compare_region}",
                 value=f"₱{compare_total:,.2f}",
-                delta=f"₱{delta:,.2f} vs {selected_region}",
+                delta=delta_str,
             )
     else:
         st.metric(label=f"Monthly Spending for {selected_region}", value=f"₱{current_scope_total:,.2f}")
