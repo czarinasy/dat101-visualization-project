@@ -378,7 +378,10 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
             title="Normalized Score (0-100)",
             title_side='right',
             tickmode='linear', tick0=0, dtick=10,
-            len=0.75, thickness=15
+            len=0.75, thickness=15,
+            tickfont=dict(color='black'),
+            title_font=dict(color='black')
+            
         ),
         xgap=2, ygap=2
     ))
