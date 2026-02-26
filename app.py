@@ -431,50 +431,71 @@ def build_risk_heatmap(risk_df: pd.DataFrame, highlighted_region: Optional[str] 
     )
     return fig
 
-def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame) -> go.Figure:
-    """Line chart comparing TOTAL_MONTHLY vs Disaster Risk Score with corrected title properties."""
 
-    # Sort regions by expenditure for a clean trend line
-    df = map_gdf.sort_values('TOTAL_MONTHLY', ascending=False)
+def build_expenditure_risk_line_chart(map_gdf: gpd.GeoDataFrame, selected_cats: List[str],
+                                      selected_region: str) -> go.Figure:
+    """Dynamic line chart that highlights the selected region on the X-axis."""
+    chart_df = map_gdf.copy()
+    chart_df['Dynamic_Exp'] = chart_df[selected_cats].sum(axis=1) if selected_cats else 0
+    chart_df = chart_df.sort_values('Dynamic_Exp', ascending=False)
 
     fig = go.Figure()
 
-    # Line 1: Expenditures (Left Axis)
+    # Line 1: Dynamic Expenditures
     fig.add_trace(go.Scatter(
-        x=df['REGION'], y=df['TOTAL_MONTHLY'],
-        name="Monthly Expenditure", mode='lines+markers',
+        x=chart_df['REGION'], y=chart_df['Dynamic_Exp'],
+        name="Selected Expenditures", mode='lines+markers',
         line=dict(color=DARK_BLUE, width=3),
         hovertemplate="₱%{y:,.2f}<extra></extra>"
     ))
 
-    # Line 2: Disaster Risk (Right Axis)
+    # Line 2: Disaster Risk
     fig.add_trace(go.Scatter(
-        x=df['REGION'], y=df['Disaster Risk Score'],
+        x=chart_df['REGION'], y=chart_df['Disaster Risk Score'],
         name="Disaster Risk Index", mode='lines+markers',
         line=dict(color=DARK_AMBER, width=3, dash='dot'),
         yaxis="y2",
         hovertemplate="Risk: %{y:.2f}<extra></extra>"
     ))
 
+    # Chart proper
     fig.update_layout(
         template="plotly_white",
-        height=CHART_SIZE,
+        height=500,
         hovermode="x unified",
         margin=dict(l=10, r=10, t=50, b=100),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(tickangle=-45),
+        xaxis=dict(
+            tickangle=-45,
+            tickmode='array',
+            tickvals=chart_df['REGION'],
+            ticktext=[
+                f"<b>{reg}</b>" if reg == selected_region else reg
+                for reg in chart_df['REGION']
+            ],
+            tickfont=dict(color="#555555")  # Base color; individual colors handled by ticktext/CSS usually
+        ),
         yaxis=dict(
-            title=dict(text="Monthly Average Expenditure (PHP)", font=dict(color=DARK_BLUE)),
+            title=dict(text="Selected Expenditure (PHP)", font=dict(color=DARK_BLUE)),
             tickfont=dict(color=DARK_BLUE)
         ),
         yaxis2=dict(
-            title=dict(text="Disaster Risk Index", font=dict(color=DARK_AMBER)),
+            title=dict(text="Risk Index", font=dict(color=DARK_AMBER)),
             tickfont=dict(color=DARK_AMBER),
             overlaying="y",
             side="right",
             range=[0, 100]
         )
     )
+
+    # Vertical line (V-Span) to highlight the column visually
+    if selected_region != "All Regions (National Avg)":
+        fig.add_vrect(
+            x0=selected_region, x1=selected_region,
+            fillcolor=DARK_BLUE, opacity=0.1,
+            layer="below", line_width=0,
+        )
+
     return fig
 
 # DEFINE NEW VISUALIZATION BUILDERS (e.g., build_line_chart, build_data_table) HERE
@@ -593,13 +614,17 @@ def main():
         fig_heatmap = build_risk_heatmap(risk_df, highlighted_region=heatmap_highlight)
         st.plotly_chart(fig_heatmap, use_container_width=True, config={'displayModeBar': False})
 
-    with st.container():
-        # Dual Axis Comparison Section
-        st.markdown("---")
-        st.subheader("📈 Expenditure vs. Disaster Risk Correlation")
+    # Expenditure - Risk comparison line chart
+    st.markdown("---")
+    st.subheader("📈 Expenditure vs. Disaster Risk Correlation")
 
-        fig_line = build_expenditure_risk_line_chart(map_gdf)
-        st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+    with st.container():
+        if selected_cats:
+            # Added selected_region here
+            fig_line = build_expenditure_risk_line_chart(map_gdf, selected_cats, selected_region)
+            st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.info("Please select at least one expenditure category to view the correlation.")
 
     # --- ADD NEW LAYOUT SECTIONS BELOW ---
     # Example: st.markdown("---")
